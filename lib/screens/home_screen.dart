@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart'; // CRITICAL IMPORT
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,7 +14,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  // DUMMY LIST for Time Being
+  // DUMMY LIST (For the Simulation Buttons only)
   final List<String> unsafeLinks = [
     "http://malicious.com",
     "www.phishing-bank.com",
@@ -32,7 +33,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _initNotifications();
   }
 
-  // 1. Setup Notifications
   void _initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -41,20 +41,39 @@ class _HomeScreenState extends State<HomeScreen> {
     await flutterLocalNotificationsPlugin.initialize(initializationSettings);
   }
 
-  // 2. Toggle Logic
-  void _toggleProtection() {
+  // --- UPDATED TOGGLE LOGIC ---
+  void _toggleProtection() async {
+    // 1. Check if we have permission to draw the "Red Box" over other apps
+    if (await Permission.systemAlertWindow.isDenied) {
+      // Request the permission
+      await Permission.systemAlertWindow.request();
+      
+      // Check again if they granted it
+      if (await Permission.systemAlertWindow.isDenied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("You MUST allow 'Display Over Other Apps' for the popup to work!"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return; // Stop here, don't enable protection
+      }
+    }
+
+    // 2. Toggle the state
     setState(() {
       isActive = !isActive;
     });
 
     if (isActive) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Protection Enabled. Running in Background...")));
-      // Later we will add the code here to open Accessibility Settings
+          content: Text("Protection Enabled. Go test it in Chrome!")));
     }
   }
 
-  // 3. Logic to check the link (Called when link is detected)
+  // Simulation Logic (For the buttons at the bottom)
   Future<void> _analyzeUrl(String url) async {
     if (!isActive) return;
 
@@ -108,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Status Text
             Text(
               isActive ? "PROTECTION ACTIVE" : "PROTECTION DISABLED",
               style: TextStyle(
@@ -119,8 +137,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 40),
-
-            // VPN Style Button
             GestureDetector(
               onTap: _toggleProtection,
               child: AnimatedContainer(
@@ -152,13 +168,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 50),
-
-            // Testing Console (Only visible when Active)
+            
+            // Simulation Console
             if (isActive) ...[
-              const Text("Simulation Console",
-                  style: TextStyle(color: Colors.white54)),
+              const Text(
+                "Simulation Console (Manual Test)",
+                style: TextStyle(color: Colors.white54),
+              ),
               const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -177,6 +194,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: const Text("Test Safe"),
                   ),
                 ],
+              ),
+              const SizedBox(height: 20),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 40.0),
+                child: Text(
+                  "NOTE: Real detection runs in background. Minimize app and open Chrome to test the Red Popup Box.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.orange, fontSize: 12),
+                ),
               ),
             ],
           ],
