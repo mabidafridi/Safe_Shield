@@ -42,7 +42,7 @@ class _SplashScreenState extends State<SplashScreen> {
     bool seenOnboarding = prefs.getBool('seenOnboarding') ?? false;
 
     // Simulate loading time (e.g. 2 seconds)
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(seconds: 0));
 
     if (mounted) {
       if (seenOnboarding) {
