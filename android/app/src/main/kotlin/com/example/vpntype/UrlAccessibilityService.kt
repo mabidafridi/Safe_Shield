@@ -22,49 +22,38 @@ class UrlAccessibilityService : AccessibilityService() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     
-    // =========================================================================
-    // SECTION: DUMMY DATA (To be replaced by API FR-3.1 later)
-    // =========================================================================
-    
-    // 1. DUMMY UNSAFE LIST
-    private val dummyUnsafeList = listOf("malicious", "bad", "virus", "gamble", "phishing")
-    
-    // 2. DUMMY SAFE LIST (For FR-4.6 Confirmation)
-    private val dummySafeList = listOf("google", "flutter", "youtube")
-    
-    // 3. SESSION WHITELIST (Links the user manually approved in this session)
+    // Session cache to prevent looping
     private val sessionAllowedUrls = mutableListOf<String>()
 
-    // =========================================================================
+    // DUMMY AI DATA
+    private val unsafePatterns = listOf("malicious", "bad", "virus", "gamble", "phishing")
 
     override fun onServiceConnected() {
-        super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        Toast.makeText(this, "Link Guard Active", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Link Shield Active", Toast.LENGTH_SHORT).show()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+
+        // MASTER SWITCH CHECK
+        if (!AppConfig.isProtectionEnabled) return
+
         val packageName = event.packageName?.toString() ?: ""
 
-        // STRATEGY: BROWSER INTERCEPTION (FR-1.4)
-        // We detect if a browser is changing its content (loading a URL)
+        // 1. Browser Detection
         val isBrowser = packageName.contains("chrome") || 
                         packageName.contains("browser") || 
                         packageName.contains("internet")
 
         if (isBrowser && (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || 
                           event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) {
-            
             val root = rootInActiveWindow ?: return
-            val browserUrl = findBrowserUrl(root)
-
-            if (browserUrl.isNotEmpty()) {
-                processUrl(browserUrl)
-            }
+            val url = findBrowserUrl(root)
+            if (url.isNotEmpty()) processUrl(url)
         }
-        
-        // STRATEGY: CLICK INTERCEPTION (Backup for Apps)
+
+        // 2. Click Detection (Messaging Apps)
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
             val source = event.source ?: return
             scanAndBlockClick(source)
@@ -72,26 +61,39 @@ class UrlAccessibilityService : AccessibilityService() {
         }
     }
 
-    // --- MAIN LOGIC ---
     private fun processUrl(url: String) {
-        // 1. If user already clicked "OPEN" for this link, let it pass.
-        if (sessionAllowedUrls.contains(url)) return 
+        if (sessionAllowedUrls.contains(url)) return
 
-        // 2. CHECK UNSAFE (Dummy List Logic)
-        if (isUnsafe(url)) {
-            // KILL BROWSER INSTANTLY
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            showGatekeeperDialog(url, isSafe = false)
+        if (WhitelistManager.isWhitelisted(url)) {
+            ThreatLogger.log(url, 0, "WHITELISTED")
+            return 
+        }
+
+        val threatScore = calculateDummyScore(url)
+
+        if (threatScore < AppConfig.threatThreshold) {
+            ThreatLogger.log(url, threatScore, "SAFE_ACCESS")
+            if (AppConfig.showSafeConfirmations) {
+                showSafeToast(url)
+            }
+            return 
+        }
+
+        // INTERCEPT!
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        
+        if (AppConfig.autoBlockEnabled && threatScore >= 90) {
+            ThreatLogger.log(url, threatScore, "AUTO_BLOCKED")
+            Toast.makeText(this, "Auto-Blocked: $url", Toast.LENGTH_LONG).show()
             return
         }
 
-        // 3. CHECK SAFE (Dummy List Logic)
-        if (isSafe(url)) {
-            // KILL BROWSER INSTANTLY (To show the 'Safe' dialog as you requested)
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            showGatekeeperDialog(url, isSafe = true)
-            return
-        }
+        showThreatWarning(url, threatScore)
+    }
+
+    private fun calculateDummyScore(url: String): Int {
+        if (unsafePatterns.any { url.contains(it) }) return 95
+        return 10 
     }
 
     private fun scanAndBlockClick(node: AccessibilityNodeInfo?): Boolean {
@@ -100,12 +102,11 @@ class UrlAccessibilityService : AccessibilityService() {
         val lowerText = text.lowercase()
 
         if (lowerText.isNotEmpty()) {
-            if (isUnsafe(lowerText)) {
-                showGatekeeperDialog(lowerText, isSafe = false)
-                return true
-            }
-            if (isSafe(lowerText)) {
-                showGatekeeperDialog(lowerText, isSafe = true)
+            if (WhitelistManager.isWhitelisted(lowerText)) return false
+            
+            val score = calculateDummyScore(lowerText)
+            if (score >= AppConfig.threatThreshold) {
+                showThreatWarning(lowerText, score)
                 return true
             }
         }
@@ -116,139 +117,81 @@ class UrlAccessibilityService : AccessibilityService() {
         return false
     }
 
-    // --- DUMMY DETECTION FUNCTIONS (Replace implementation later) ---
-    private fun isUnsafe(text: String): Boolean {
-        for (bad in dummyUnsafeList) {
-            if (text.contains(bad)) return true
-        }
-        return false
-    }
-
-    private fun isSafe(text: String): Boolean {
-        for (safe in dummySafeList) {
-            if (text.contains(safe)) return true
-        }
-        return false
-    }
-
-    // --- HELPER: FIND URL IN BROWSER ---
-    private fun findBrowserUrl(node: AccessibilityNodeInfo?): String {
-        if (node == null) return ""
-        
-        // Chrome URL bar ID
-        if (node.viewIdResourceName != null && node.viewIdResourceName.contains("url_bar")) {
-            return node.text?.toString() ?: ""
-        }
-        
-        // Generic Text Check
-        if (node.text != null) {
-            val t = node.text.toString()
-            if (t.startsWith("http") || t.contains("www.")) return t
-        }
-
-        for (i in 0 until node.childCount) {
-            val res = findBrowserUrl(node.getChild(i))
-            if (res.isNotEmpty()) return res
-        }
-        return ""
-    }
-
-    // --- UI: THE GATEKEEPER DIALOG ---
-    private fun showGatekeeperDialog(url: String, isSafe: Boolean) {
+    private fun showThreatWarning(url: String, score: Int) {
         if (floatingView != null) return
 
         try {
-            // 1. BLACKOUT BACKGROUND (Visual Blocking)
             val rootLayout = FrameLayout(this)
-            rootLayout.setBackgroundColor(Color.parseColor("#F2000000")) // 95% Black
-            rootLayout.setOnClickListener { } // Consume clicks
+            rootLayout.setBackgroundColor(Color.parseColor("#F2000000")) 
+            rootLayout.setOnClickListener { } 
 
-            // 2. MAIN CARD
             val card = LinearLayout(this)
             card.orientation = LinearLayout.VERTICAL
             card.setBackgroundColor(Color.parseColor("#1E1E1E"))
             card.setPadding(60, 60, 60, 60)
-            
             val cardParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
             cardParams.gravity = Gravity.CENTER
             cardParams.setMargins(40, 0, 40, 0)
             rootLayout.addView(card, cardParams)
 
-            // 3. HEADER
             val header = TextView(this)
-            header.text = if (isSafe) "✅ SAFE LINK" else "🛡️ THREAT DETECTED"
+            header.text = "🛡️ THREAT DETECTED"
             header.textSize = 22f
-            header.setTextColor(if (isSafe) Color.GREEN else Color.RED)
+            header.setTextColor(Color.RED)
             header.gravity = Gravity.CENTER
             header.setTypeface(null, android.graphics.Typeface.BOLD)
             card.addView(header)
 
-            // 4. URL & SCORE (Dummy Score Logic)
             val info = TextView(this)
-            val score = if (isSafe) "99/100 (Safe)" else "95/100 (Critical)"
-            info.text = "\nLink: $url\n\nThreat Score: $score"
+            info.text = "\nLink: $url\n\nThreat Score: $score/100"
             info.textSize = 16f
             info.setTextColor(Color.WHITE)
             info.gravity = Gravity.CENTER
             card.addView(info)
 
-            // 5. RISK INDICATORS (Static for now)
             val risks = TextView(this)
-            risks.text = if (isSafe) 
-                "\n• Verified Domain\n• SSL Valid\n• Known Safe List" 
-            else 
-                "\n• Phishing Pattern Detected\n• Suspicious Domain\n• User Reported"
-                
+            risks.text = "\nRisk Indicators:\n• Suspicious Pattern\n• Unverified Domain"
             risks.textSize = 14f
-            risks.setTextColor(if (isSafe) Color.GREEN else Color.YELLOW)
+            risks.setTextColor(Color.YELLOW)
             risks.setPadding(0, 20, 0, 40)
             card.addView(risks)
 
-            // 6. BUTTONS
             val btnLayout = LinearLayout(this)
             btnLayout.orientation = LinearLayout.HORIZONTAL
             btnLayout.gravity = Gravity.CENTER
             card.addView(btnLayout)
 
-            // BUTTON 1: BLOCK / IGNORE
             val btnBlock = Button(this)
-            btnBlock.text = "⛔ IGNORE"
+            btnBlock.text = "⛔ BLOCK"
             btnBlock.setBackgroundColor(Color.RED)
             btnBlock.setTextColor(Color.WHITE)
             btnBlock.setOnClickListener {
+                ThreatLogger.log(url, score, "USER_BLOCKED")
                 removeAlertBox()
-                // Do NOT open browser. Just stay here.
-                Toast.makeText(this, "Link Ignored", Toast.LENGTH_SHORT).show()
+                performGlobalAction(GLOBAL_ACTION_BACK) 
+                Toast.makeText(this, "Url Blocked", Toast.LENGTH_SHORT).show()
             }
             val p1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             p1.rightMargin = 15
             btnLayout.addView(btnBlock, p1)
 
-            // BUTTON 2: OPEN / PROCEED
             val btnProceed = Button(this)
-            btnProceed.text = if (isSafe) "OPEN" else "⚠️ OPEN ANYWAY"
-            btnProceed.setBackgroundColor(if (isSafe) Color.GREEN else Color.DKGRAY)
-            btnProceed.setTextColor(if (isSafe) Color.BLACK else Color.WHITE)
+            btnProceed.text = "PROCEED"
+            btnProceed.setBackgroundColor(Color.DKGRAY)
+            btnProceed.setTextColor(Color.WHITE)
             btnProceed.setOnClickListener {
+                ThreatLogger.log(url, score, "USER_PROCEEDED")
                 removeAlertBox()
-                
-                // IMPORTANT: Add to session list so we don't loop forever
-                sessionAllowedUrls.add(url)
-                
-                // RE-LAUNCH THE BROWSER
+                sessionAllowedUrls.add(url) 
                 launchBrowser(url)
             }
             val p2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             btnLayout.addView(btnProceed, p2)
 
-            // WINDOW SETUP
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                else
-                    WindowManager.LayoutParams.TYPE_PHONE,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
             )
@@ -261,21 +204,38 @@ class UrlAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun showSafeToast(url: String) {
+        Toast.makeText(this, "✅ Safe: $url", Toast.LENGTH_SHORT).show()
+    }
+
     private fun launchBrowser(url: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
         } catch (e: Exception) {
-            try {
-                // Retry with http prefix if missing
+             try {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("http://$url"))
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
-            } catch (e2: Exception) {
-                Toast.makeText(this, "Could not open link", Toast.LENGTH_SHORT).show()
-            }
+            } catch (e2: Exception) {}
         }
+    }
+
+    private fun findBrowserUrl(node: AccessibilityNodeInfo?): String {
+        if (node == null) return ""
+        if (node.viewIdResourceName != null && node.viewIdResourceName.contains("url_bar")) {
+            return node.text?.toString() ?: ""
+        }
+        if (node.text != null) {
+            val t = node.text.toString()
+            if (t.startsWith("http") || t.contains("www.")) return t
+        }
+        for (i in 0 until node.childCount) {
+            val res = findBrowserUrl(node.getChild(i))
+            if (res.isNotEmpty()) return res
+        }
+        return ""
     }
 
     private fun removeAlertBox() {
