@@ -170,31 +170,31 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 50),
             
-            // Simulation Console
-            if (isActive) ...[
-              const Text(
-                "Simulation Console (Manual Test)",
-                style: TextStyle(color: Colors.white54),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    style:
-                        ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    onPressed: () => _analyzeUrl("http://malicious.com"),
-                    child: const Text("Test Unsafe"),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    style:
-                        ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    onPressed: () => _analyzeUrl("https://google.com"),
-                    child: const Text("Test Safe"),
-                  ),
-                ],
-              ),
+            // // Simulation Console
+            // if (isActive) ...[
+            //   const Text(
+            //     "Simulation Console (Manual Test)",
+            //     style: TextStyle(color: Colors.white54),
+            //   ),
+            //   const SizedBox(height: 10),
+            //   Row(
+            //     mainAxisAlignment: MainAxisAlignment.center,
+            //     children: [
+            //       ElevatedButton(
+            //         style:
+            //             ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            //         onPressed: () => _analyzeUrl("http://malicious.com"),
+            //         child: const Text("Test Unsafe"),
+            //       ),
+            //       const SizedBox(width: 10),
+            //       ElevatedButton(
+            //         style:
+            //             ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            //         onPressed: () => _analyzeUrl("https://google.com"),
+            //         child: const Text("Test Safe"),
+            //       ),
+            //     ],
+            //   ),
               const SizedBox(height: 20),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 40.0),
@@ -204,7 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(color: Colors.orange, fontSize: 12),
                 ),
               ),
-            ],
+            //],
           ],
         ),
       ),
