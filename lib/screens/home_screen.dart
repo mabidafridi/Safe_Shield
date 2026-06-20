@@ -24,7 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text("URL Shield Pro", style: TextStyle(color: Colors.white)),
+        title: const Text("Safe Shield", style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF1E1E1E),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: () => setState(() {}))],
       ),
